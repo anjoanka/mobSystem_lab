@@ -30,6 +30,16 @@ class CloudRepository(
         return true
     }
 
+    suspend fun fetchLedStatus(): Boolean? {
+        return try {
+            val response = api.getControl()
+            if (response.isSuccessful) response.body()?.ledStatus else null
+        } catch (e: Exception) {
+            Log.e(TAG, "Помилка читання команди: ${e.message}")
+            null
+        }
+    }
+
     companion object {
         const val TAG = "CloudSync"
     }

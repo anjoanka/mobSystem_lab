@@ -6,6 +6,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.impactlogger.helpers.NetworkChecker
 import com.example.impactlogger.helpers.SensorReader
+import com.example.impactlogger.helpers.SmartActuator
 import com.example.impactlogger.repository.CloudRepository
 import com.example.impactlogger.repository.SensorData
 import kotlinx.coroutines.Job
@@ -25,9 +26,15 @@ class MonitorViewModel(app: Application) : AndroidViewModel(app) {
     private val sensorReader = SensorReader(app)
     private val network = NetworkChecker(app)
     private val repository = CloudRepository()
+    private val actuator = SmartActuator(app)
+    private val decisionEngine = DecisionEngine()
 
     private val _state = MutableStateFlow(
-        MonitorState(isSensorAvailable = sensorReader.isAvailable)
+        MonitorState(
+            isSensorAvailable = sensorReader.isAvailable,
+            hasFlash = actuator.hasFlash,
+            hasVibrator = actuator.hasVibrator
+        )
     )
     val state: StateFlow<MonitorState> = _state.asStateFlow()
 
@@ -36,7 +43,9 @@ class MonitorViewModel(app: Application) : AndroidViewModel(app) {
 
     private var sensorJob: Job? = null
     private var syncJob: Job? = null
+    private var controlJob: Job? = null
     private var lastImpactTime = 0L
+    private var lastAutoRelay = false
 
     fun onAction(action: MonitorAction) {
         when (action) {
@@ -47,6 +56,14 @@ class MonitorViewModel(app: Application) : AndroidViewModel(app) {
             MonitorAction.ClearLog -> {
                 _state.update { it.copy(impacts = emptyList()) }
                 sendMessage("Журнал очищено")
+            }
+            is MonitorAction.SetFlashlight -> setFlashlight(action.on)
+            is MonitorAction.SetRelay -> setRelay(action.on, "вручну")
+            MonitorAction.TestAlarm -> activateAlarm(_state.value.gForce, "тест")
+            MonitorAction.ResetAlarm -> {
+                setFlashlight(false)
+                _state.update { it.copy(alarmActive = false) }
+                sendMessage("Тривогу скинуто")
             }
         }
     }
@@ -63,6 +80,12 @@ class MonitorViewModel(app: Application) : AndroidViewModel(app) {
                 syncToCloud()
             }
         }
+        controlJob = viewModelScope.launch {
+            while (isActive) {
+                pollCloudCommand()
+                delay(CONTROL_POLL_MS)
+            }
+        }
     }
 
     private fun stopSensor() {
@@ -70,21 +93,25 @@ class MonitorViewModel(app: Application) : AndroidViewModel(app) {
         sensorJob = null
         syncJob?.cancel()
         syncJob = null
+        controlJob?.cancel()
+        controlJob = null
         _state.update { it.copy(isRunning = false) }
     }
 
     private fun onReading(x: Float, y: Float, z: Float) {
         val g = sqrt(x * x + y * y + z * z) / SensorManager.GRAVITY_EARTH
         val threshold = _state.value.thresholdG
+        val tilt = decisionEngine.tiltAngle(x, y, z)
+        val decision = decisionEngine.decide(g, tilt, threshold)
 
         val level = when {
-            g >= threshold -> ImpactLevel.Impact
+            decision.triggerAlarm -> ImpactLevel.Impact
             g >= (1f + threshold) / 2f -> ImpactLevel.Warning
             else -> ImpactLevel.Normal
         }
 
         val now = System.currentTimeMillis()
-        val isNewImpact = level == ImpactLevel.Impact && now - lastImpactTime > IMPACT_COOLDOWN_MS
+        val isNewImpact = decision.triggerAlarm && now - lastImpactTime > IMPACT_COOLDOWN_MS
         if (isNewImpact) lastImpactTime = now
 
         _state.update { s ->
@@ -92,6 +119,7 @@ class MonitorViewModel(app: Application) : AndroidViewModel(app) {
                 x = x, y = y, z = z,
                 gForce = g,
                 level = level,
+                tiltDeg = tilt,
                 impacts = if (isNewImpact) {
                     (listOf(ImpactRecord(now, g)) + s.impacts).take(MAX_LOG_SIZE)
                 } else {
@@ -102,7 +130,40 @@ class MonitorViewModel(app: Application) : AndroidViewModel(app) {
 
         if (isNewImpact) {
             repository.add(makeData("impact", g, x, y, z))
-            sendMessage("Удар: %.2f g".format(g))
+            activateAlarm(g, "удар")
+        }
+
+        if (decision.relayOn != lastAutoRelay) {
+            lastAutoRelay = decision.relayOn
+            setRelay(decision.relayOn, "нахил %.0f°".format(tilt))
+        }
+    }
+
+    private fun activateAlarm(g: Float, reason: String) {
+        actuator.triggerAlarm()
+        setFlashlight(true)
+        _state.update { it.copy(alarmActive = true) }
+        sendMessage("ТРИВОГА ($reason): %.2f g".format(g))
+    }
+
+    private fun setFlashlight(on: Boolean) {
+        if (_state.value.flashlightOn == on) return
+        actuator.toggleFlashlight(on)
+        _state.update { it.copy(flashlightOn = on) }
+    }
+
+    private fun setRelay(on: Boolean, reason: String) {
+        if (_state.value.relayOn == on) return
+        _state.update { it.copy(relayOn = on) }
+        sendMessage("Реле ${if (on) "УВІМКНЕНО" else "ВИМКНЕНО"} ($reason)")
+    }
+
+    private suspend fun pollCloudCommand() {
+        if (!network.isOnline()) return
+        val led = repository.fetchLedStatus() ?: return
+        if (led != _state.value.cloudLedOn) {
+            _state.update { it.copy(cloudLedOn = led, lastCommandTime = System.currentTimeMillis()) }
+            sendMessage("Команда з хмари: лампа ${if (led) "ON" else "OFF"}")
         }
     }
 
@@ -153,10 +214,16 @@ class MonitorViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch { _events.send(MonitorEvent.ShowMessage(text)) }
     }
 
+    override fun onCleared() {
+        actuator.toggleFlashlight(false)
+        super.onCleared()
+    }
+
     private companion object {
         const val IMPACT_COOLDOWN_MS = 500L
         const val MAX_LOG_SIZE = 20
         const val SYNC_INTERVAL_MS = 5000L
+        const val CONTROL_POLL_MS = 1500L
         const val DEVICE_ID = "impact-logger-01"
     }
 }

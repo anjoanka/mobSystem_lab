@@ -22,7 +22,15 @@ data class MonitorState(
     val cloudStatus: CloudStatus = CloudStatus.Idle,
     val sentCount: Int = 0,
     val pendingCount: Int = 0,
-    val lastSyncTime: Long? = null
+    val lastSyncTime: Long? = null,
+    val tiltDeg: Float = 0f,
+    val alarmActive: Boolean = false,
+    val relayOn: Boolean = false,
+    val flashlightOn: Boolean = false,
+    val cloudLedOn: Boolean = false,
+    val lastCommandTime: Long? = null,
+    val hasFlash: Boolean = false,
+    val hasVibrator: Boolean = false
 )
 
 sealed interface MonitorAction {
@@ -30,6 +38,10 @@ sealed interface MonitorAction {
     data object Stop : MonitorAction
     data class ThresholdChanged(val value: Float) : MonitorAction
     data object ClearLog : MonitorAction
+    data class SetFlashlight(val on: Boolean) : MonitorAction
+    data class SetRelay(val on: Boolean) : MonitorAction
+    data object TestAlarm : MonitorAction
+    data object ResetAlarm : MonitorAction
 }
 
 sealed interface MonitorEvent {

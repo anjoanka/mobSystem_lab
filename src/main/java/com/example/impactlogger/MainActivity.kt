@@ -21,6 +21,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import com.example.impactlogger.device.DeviceScreen
 import com.example.impactlogger.device.DeviceViewModel
+import com.example.impactlogger.monitor.ControlScreen
 import com.example.impactlogger.monitor.MonitorAction
 import com.example.impactlogger.monitor.MonitorScreen
 import com.example.impactlogger.monitor.MonitorViewModel
@@ -37,6 +38,7 @@ class MainActivity : ComponentActivity() {
         setContent {
             ImpactLoggerTheme {
                 var selectedTab by rememberSaveable { mutableIntStateOf(0) }
+                val titles = listOf("Монітор", "Пристрій", "Керування")
 
                 Scaffold(
                     topBar = {
@@ -44,16 +46,13 @@ class MainActivity : ComponentActivity() {
                             selectedTabIndex = selectedTab,
                             modifier = Modifier.statusBarsPadding()
                         ) {
-                            Tab(
-                                selected = selectedTab == 0,
-                                onClick = { selectedTab = 0 },
-                                text = { Text("Монітор") }
-                            )
-                            Tab(
-                                selected = selectedTab == 1,
-                                onClick = { selectedTab = 1 },
-                                text = { Text("Пристрій") }
-                            )
+                            titles.forEachIndexed { index, title ->
+                                Tab(
+                                    selected = selectedTab == index,
+                                    onClick = { selectedTab = index },
+                                    text = { Text(title) }
+                                )
+                            }
                         }
                     }
                 ) { padding ->
@@ -66,6 +65,7 @@ class MainActivity : ComponentActivity() {
                         when (selectedTab) {
                             0 -> MonitorScreen(monitorVm)
                             1 -> DeviceScreen(deviceVm)
+                            2 -> ControlScreen(monitorVm)
                         }
                     }
                 }
