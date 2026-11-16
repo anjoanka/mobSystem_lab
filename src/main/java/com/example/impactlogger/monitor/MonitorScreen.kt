@@ -2,15 +2,21 @@ package com.example.impactlogger.monitor
 
 import android.widget.Toast
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -70,7 +76,7 @@ fun MonitorContent(state: MonitorState, onAction: (MonitorAction) -> Unit) {
                 .padding(padding)
                 .padding(16.dp)
                 .fillMaxSize(),
-            verticalArrangement = Arrangement.spacedBy(10.dp)
+            verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             Text("Impact Logger", style = MaterialTheme.typography.headlineMedium)
 
@@ -79,6 +85,13 @@ fun MonitorContent(state: MonitorState, onAction: (MonitorAction) -> Unit) {
             }
 
             Text(if (state.isRunning) "● Моніторинг активний" else "⏸ На паузі")
+
+            CloudIndicator(
+                status = state.cloudStatus,
+                sent = state.sentCount,
+                pending = state.pendingCount,
+                lastSync = state.lastSyncTime?.let { timeFmt.format(Date(it)) } ?: "—"
+            )
 
             Text("X: %.2f м/с²".format(state.x))
             Text("Y: %.2f м/с²".format(state.y))
@@ -124,8 +137,33 @@ fun MonitorContent(state: MonitorState, onAction: (MonitorAction) -> Unit) {
 }
 
 @Composable
+fun CloudIndicator(status: CloudStatus, sent: Int, pending: Int, lastSync: String) {
+    val (dotColor, label) = when (status) {
+        CloudStatus.Idle -> Color.Gray to "очікування"
+        CloudStatus.Synced -> Color(0xFF388E3C) to "успішно"
+        CloudStatus.Pending -> Color(0xFFF9A825) to "Pending (немає мережі)"
+        CloudStatus.Error -> Color(0xFFD32F2F) to "помилка"
+    }
+    Column {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Box(
+                modifier = Modifier
+                    .size(12.dp)
+                    .background(dotColor, CircleShape)
+            )
+            Spacer(Modifier.width(8.dp))
+            Text("Хмарна синхронізація: $label")
+        }
+        Text(
+            "Відправлено: $sent   У черзі: $pending   Остання: $lastSync",
+            style = MaterialTheme.typography.bodySmall
+        )
+    }
+}
+
+@Composable
 fun TiltIndicator(x: Float, y: Float, modifier: Modifier = Modifier) {
-    Canvas(modifier.size(150.dp)) {
+    Canvas(modifier.size(130.dp)) {
         val r = size.minDimension / 2
 
         drawCircle(Color.Gray, radius = r, style = Stroke(4f))
@@ -153,6 +191,9 @@ private fun MonitorContentPreview() {
                 gForce = 2.3f,
                 level = ImpactLevel.Impact,
                 isRunning = true,
+                cloudStatus = CloudStatus.Synced,
+                sentCount = 12,
+                lastSyncTime = System.currentTimeMillis(),
                 impacts = listOf(
                     ImpactRecord(System.currentTimeMillis(), 2.3f),
                     ImpactRecord(System.currentTimeMillis() - 60_000, 2.8f)

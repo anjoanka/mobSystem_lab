@@ -2,6 +2,8 @@ package com.example.impactlogger.monitor
 
 enum class ImpactLevel { Normal, Warning, Impact }
 
+enum class CloudStatus { Idle, Synced, Pending, Error }
+
 data class ImpactRecord(
     val timestamp: Long,
     val gForce: Float
@@ -16,7 +18,11 @@ data class MonitorState(
     val thresholdG: Float = 2.0f,
     val impacts: List<ImpactRecord> = emptyList(),
     val isRunning: Boolean = false,
-    val isSensorAvailable: Boolean = true
+    val isSensorAvailable: Boolean = true,
+    val cloudStatus: CloudStatus = CloudStatus.Idle,
+    val sentCount: Int = 0,
+    val pendingCount: Int = 0,
+    val lastSyncTime: Long? = null
 )
 
 sealed interface MonitorAction {
